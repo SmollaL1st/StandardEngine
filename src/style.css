@@ -1,0 +1,10 @@
+body {
+    margin: 0;
+    overflow: hidden;
+    background-color: #202020;
+}
+canvas {
+    display: block;
+}canvas { width: 100vw; height: 100vh; }
+.viewer-status { position: fixed; left: 20px; bottom: 20px; color: #fff; background: #301d1d; font: 14px system-ui; padding: 10px; max-width: 420px; }
+.viewer-status:empty { display: none; }
