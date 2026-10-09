@@ -24,7 +24,7 @@ export class Stand {
         this.gold.geometry.dispose();
         this.gold.geometry = merge([
             sphere(0.09, top + 0.05), cylinder(0, 0.045, top + 0.12, top + 0.48),
-            ...[0, 0.5, 1].map(t => torus(0.064, 0.01, this.flagTop - height * t)),
+            torus(0.064, 0.01, this.flagTop),
         ]);
     }
     dispose() { this.meshes.forEach(mesh => mesh.geometry.dispose()); }

@@ -5,7 +5,7 @@ import { createServer } from 'vite';
 
 const server = await createServer({
     root: fileURLToPath(new URL('..', import.meta.url)), configFile: false,
-    server: { middlewareMode: true, watch: null, hmr: false }, appType: 'custom',
+    server: { middlewareMode: true, watch: null, hmr: false, ws: false }, appType: 'custom',
 });
 let Flag, CeremonialDrape, FoldCurve, defaultDrape, textileSizeForPole, Solver, Particle, Vec3, ImageTexture, perspective, orthographic, lookAt, multiply4;
 try {
@@ -76,6 +76,23 @@ function metricErrors(drape) {
     return errors;
 }
 
+function areaWeightedStrain(drape, quantile) {
+    const uv = drape.geometry.uvs, samples = [];
+    let total = 0;
+    for (let y = 0; y < drape.rows; y++) for (let x = 0; x < drape.columns; x++) {
+        const a = drape.index(x, y), b = drape.index(x + 1, y), c = drape.index(x, y + 1);
+        const du = (uv[b * 2] - uv[a * 2]) * drape.width, dv = (uv[a * 2 + 1] - uv[c * 2 + 1]) * drape.height;
+        const weight = du * dv;
+        samples.push({ error: Math.abs(position(drape, x, y).distanceTo(position(drape, x + 1, y)) / du - 1), weight },
+            { error: Math.abs(position(drape, x, y).distanceTo(position(drape, x, y + 1)) / dv - 1), weight });
+        total += weight * 2;
+    }
+    samples.sort((a, b) => a.error - b.error);
+    let covered = 0;
+    for (const sample of samples) { covered += sample.weight; if (covered >= total * quantile) return sample.error; }
+    return samples.at(-1).error;
+}
+
 test('bends preserve BOTH material directions for square, portrait and landscape images', () => {
     for (const aspect of [0.5, 1, 1.5, 3]) {
         const { width, height } = textileSizeForPole(aspect, 7.5);
@@ -104,7 +121,7 @@ test('all shape controls change the pose without rebuilding topology or cropping
     const drape = new CeremonialDrape(4, 4);
     try {
         const topology = drape.geometry.indices;
-        for (const [key, value] of Object.entries({ size: 0.8, opening: 26, gather: 0.2, shoulder: 0.4, hoist: 0.7, fall: 0.75, folds: 8, foldDepth: 0.9, twist: 35, rotation: 120, bendNear: 90, bendMiddle: 100, bendOuter: 90, edgeCurl: 110 })) {
+        for (const [key, value] of Object.entries({ coneAmount: 0.4, size: 0.8, opening: 26, gather: 0.2, shoulder: 0.4, hoist: 0.7, fall: 0.75, folds: 8, foldDepth: 0.9, twist: 35, rotation: 120, bendNear: 90, bendMiddle: 100, bendOuter: 90, edgeCurl: 110 })) {
             drape.configure(defaultDrape); const before = positions(drape); drape.configure({ [key]: value });
             assert.ok(positions(drape).some((n, i) => Math.abs(n - before[i]) > 0.001), `${key} must change the pose`);
             assert.equal(drape.geometry.indices, topology);
@@ -115,6 +132,30 @@ test('all shape controls change the pose without rebuilding topology or cropping
             assertSurface(drape);
         }
     } finally { drape.dispose(); }
+});
+
+test('cone-to-flat shapes preserve textile dimensions, including a square hanging by its diagonal', () => {
+    for (const aspect of [0.5, 1, 1.5, 3]) {
+        const { width, height } = textileSizeForPole(aspect, 7.5), drape = new CeremonialDrape(width, height);
+        try {
+            for (const coneAmount of [1, 0.9, 0.75, 0.5, 0.25, 0.1, 0]) {
+                drape.configure({ coneAmount }); assertSurface(drape);
+                assert.ok(Math.max(...metricErrors(drape)) < 0.02, `material dimensions at cone amount ${coneAmount}`);
+                assert.ok(minimumStaffDistance(drape) > 0.05, `rest surface clears the staff at cone amount ${coneAmount}`);
+                assert.ok(Math.abs(position(drape, 0, 0).y - drape.attachmentY) < 1e-6);
+            }
+            const top = position(drape, 0, 0), right = position(drape, drape.columns, 0);
+            const left = position(drape, 0, drape.rows), bottom = position(drape, drape.columns, drape.rows);
+            assert.ok(Math.abs(top.y - drape.attachmentY) < 1e-6, 'upper corner stays below the finial');
+            assert.ok(Math.abs(bottom.x - top.x) < 1e-6, 'opposite corner hangs below the upper attachment');
+            assert.ok(Math.abs(top.distanceTo(right) - width) < 1e-6);
+            assert.ok(Math.abs(top.distanceTo(left) - height) < 1e-6);
+            assert.ok(Math.abs(top.distanceTo(bottom) - Math.hypot(width, height)) < 1e-6);
+            for (let i = 2; i < drape.geometry.positions.length; i += 3) {
+                assert.ok(Math.abs(drape.geometry.positions[i] - top.z) < 1e-6, 'flat means a plane rather than a shallow cone');
+            }
+        } finally { drape.dispose(); }
+    }
 });
 
 test('the default fold profile has inward and outward curvature and reaches behind the staff', () => {
@@ -188,7 +229,7 @@ test('extreme control combinations do not collapse the upper cloth', () => {
     } finally { drape.dispose(); }
 });
 
-test('wind preserves attachment and material lengths, and reset returns to the exact pose', () => {
+test('wind releases the hoist below the upper cuff; pause and reset preserve the chosen pose', () => {
     const drape = new CeremonialDrape(4, 4);
     try {
         const rest = positions(drape), wind = new Vec3(25, 0, 20);
@@ -199,12 +240,43 @@ test('wind preserves attachment and material lengths, and reset returns to the e
         }
         const moving = positions(drape);
         assert.ok(peakMotion > 0.01, 'wind must produce visible motion somewhere in its oscillation');
-        for (let y = 0; y <= drape.rows; y++) for (let x = 0; x <= drape.sleeveColumns; x++) {
-            const i = drape.index(x, y) * 3; assert.deepEqual(moving.slice(i, i + 3), rest.slice(i, i + 3));
+        for (let x = 0; x <= 2; x++) {
+            const i = drape.index(x, 0) * 3; assert.deepEqual(moving.slice(i, i + 3), rest.slice(i, i + 3));
         }
-        assert.ok(Math.max(...metricErrors(drape)) < 0.02); assertSurface(drape);
-        for (let i = 0; i < 120; i++) drape.advance(0.1, new Vec3(), 1);
-        assert.deepEqual(positions(drape), rest); drape.advance(0.1, wind, 1); drape.reset(); assert.deepEqual(positions(drape), rest);
+        const lowerHoist = drape.index(0, drape.rows) * 3;
+        assert.ok(moving.slice(lowerHoist, lowerHoist + 3).some((value, i) => Math.abs(value - rest[lowerHoist + i]) > 0.01));
+        assertSurface(drape);
+        assert.equal(drape.advance(0, wind, 1), false); assert.deepEqual(positions(drape), moving);
+        drape.reset(); assert.deepEqual(positions(drape), rest);
+    } finally { drape.dispose(); }
+});
+
+test('simulated flat, intermediate and conical flags retain print scale and clear the staff', () => {
+    for (const coneAmount of [0, 0.5, 1]) {
+        const drape = new CeremonialDrape(4, 4);
+        try {
+            drape.configure({ coneAmount }); const uv = Array.from(drape.geometry.uvs);
+            for (let frame = 0; frame < 120; frame++) drape.advance(1 / 60, new Vec3(0, 0, 20), 0.5);
+            assertSurface(drape); assert.deepEqual(Array.from(drape.geometry.uvs), uv);
+            // Check represented textile area, rather than giving a tiny cuff
+            // cell the same importance as a large region of the printed emblem.
+            assert.ok(areaWeightedStrain(drape, 0.95) < 0.025);
+            assert.ok(areaWeightedStrain(drape, 0.99) < 0.05);
+            assert.ok(minimumStaffDistance(drape) > 0.05);
+            const moving = positions(drape);
+            drape.configure({ bending: 0.8, shapeHold: 0.7, damping: 0.9 });
+            assert.deepEqual(positions(drape), moving, 'physics sliders must not reset the fabric');
+        } finally { drape.dispose(); }
+    }
+});
+
+test('released cloth clears the staff after a long gravity settle with shape hold disabled', () => {
+    const drape = new CeremonialDrape(4, 4);
+    try {
+        drape.configure({ shapeHold: 0 });
+        for (let frame = 0; frame < 300; frame++) drape.advance(1 / 30, new Vec3(), 0.5);
+        assert.ok(positions(drape).every(Number.isFinite));
+        assert.ok(minimumStaffDistance(drape) > 0.05);
     } finally { drape.dispose(); }
 });
 

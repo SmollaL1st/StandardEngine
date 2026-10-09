@@ -5,8 +5,15 @@ import pkg from '../../package.json';
 import type { FlagMaterialStyle } from '../rendering/Material';
 import { defaultDrape, type DrapeSettings } from '../drape/CeremonialDrape';
 
+type ShapePreset = 'Cone' | 'Flat' | 'Custom';
+
+function presetForAmount(amount: number): ShapePreset {
+    return amount === 0 ? 'Flat' : amount === 1 ? 'Cone' : 'Custom';
+}
+
 export class UIParams {
     drape: DrapeSettings = { ...defaultDrape };
+    shapePreset: ShapePreset = presetForAmount(defaultDrape.coneAmount);
     bendStrength = 100;
     projection: Projection = 'Orthographic';
     windSpeed = 0;
@@ -74,9 +81,27 @@ export class UIController {
             this.updateDisplay();
         } }, 'reset').name('Reset Shape');
 
-        const drape = this.gui.addFolder('Drape Shape');
         const shape = this.params.drape;
-        drape.add(shape, 'size', 0.65, 1.1, 0.01).name('Size').onChange(callbacks.onDrapeChange);
+        const form = this.gui.addFolder('Shape');
+        form.add(this.params, 'shapePreset', ['Cone', 'Flat', 'Custom']).name('Preset').onChange((preset: ShapePreset) => {
+            if (preset === 'Custom') { this.updateDisplay(); return; }
+            shape.coneAmount = preset === 'Flat' ? 0 : 1;
+            callbacks.onDrapeChange();
+            this.updateDisplay();
+        });
+        form.add(shape, 'coneAmount', 0, 1, 0.01).name('Cone Amount').onChange(() => {
+            callbacks.onDrapeChange();
+            this.updateDisplay();
+        });
+        form.add(shape, 'size', 0.65, 1.1, 0.01).name('Size').onChange(callbacks.onDrapeChange);
+        form.add(shape, 'rotation', -180, 180, 1).name('Rotation °').onChange(callbacks.onDrapeChange);
+
+        const physics = this.gui.addFolder('Physics');
+        physics.add(shape, 'bending', 0, 1, 0.01).name('Bending').onChange(callbacks.onDrapeChange);
+        physics.add(shape, 'shapeHold', 0, 1, 0.01).name('Shape Hold').onChange(callbacks.onDrapeChange);
+        physics.add(shape, 'damping', 0, 1, 0.01).name('Damping').onChange(callbacks.onDrapeChange);
+
+        const drape = this.gui.addFolder('Advanced Drape').close();
         drape.add(shape, 'opening', 16, 36, 0.5).name('Opening °').onChange(callbacks.onDrapeChange);
         drape.add(shape, 'gather', 0, 1, 0.01).name('Gather').onChange(callbacks.onDrapeChange);
         drape.add(shape, 'shoulder', 0.04, 0.45, 0.01).name('Shoulder').onChange(callbacks.onDrapeChange);
@@ -85,9 +110,8 @@ export class UIController {
         drape.add(shape, 'folds', 2, 10, 1).name('Fold Count').onChange(callbacks.onDrapeChange);
         drape.add(shape, 'foldDepth', 0, 1, 0.01).name('Fold Depth').onChange(callbacks.onDrapeChange);
         drape.add(shape, 'twist', -45, 45, 1).name('Twist °').onChange(callbacks.onDrapeChange);
-        drape.add(shape, 'rotation', -180, 180, 1).name('Rotation °').onChange(callbacks.onDrapeChange);
 
-        const bends = this.gui.addFolder('Bend Profile (− inward)');
+        const bends = this.gui.addFolder('Bend Profile (− inward)').close();
         bends.add(shape, 'bendNear', -120, 120, 1).name('Near Pole °').onChange(callbacks.onDrapeChange);
         bends.add(shape, 'bendMiddle', -120, 120, 1).name('Middle Bend °').onChange(callbacks.onDrapeChange);
         bends.add(shape, 'bendOuter', -120, 120, 1).name('Outer Bend °').onChange(callbacks.onDrapeChange);
@@ -102,7 +126,7 @@ export class UIController {
         this.gui.addFolder('Flagpole').add(this.params, 'poleLength', 5, 20, 0.1).name('Pole Length').onChange(callbacks.onUpdatePole);
         const motion = this.gui.addFolder('Motion').close();
         motion.add(this.params, 'enableMotion').name('Animate');
-        motion.add(this.params, 'softness', 0, 1, 0.01).name('Softness');
+        motion.add(this.params, 'softness', 0, 1, 0.01).name('Wind Response');
         motion.add(this.params, 'windSpeed', 0, 30, 0.5).name('Wind Speed');
         motion.add(this.params, 'windDirectionX', -1, 1, 0.01).name('Wind X');
         motion.add(this.params, 'windDirectionZ', -1, 1, 0.01).name('Wind Z');
@@ -112,7 +136,10 @@ export class UIController {
         this.gui.add(this.params, 'version').name('Version').disable();
     }
 
-    updateDisplay() { this.gui.controllersRecursive().forEach(c => c.updateDisplay()); }
+    updateDisplay() {
+        this.params.shapePreset = presetForAmount(this.params.drape.coneAmount);
+        this.gui.controllersRecursive().forEach(c => c.updateDisplay());
+    }
 
     loadDefaultTexture(url: string, onLoaded: (aspect: number, texture: ImageTexture) => void) {
         const id = ++this.loadId;
