@@ -1,88 +1,74 @@
 # Standard Engine
 
-A browser viewer for ceremonial flags on floor stands. Upload a flag image,
-adjust the folds and fringe, and view it from different angles.
+Браузерный редактор купольного церемониального флага: полотно обёрнуто конусом вокруг
+древка, как у флагов на напольных стойках в залах и кабинетах. Загрузите своё изображение,
+выставьте свет под фотографию и сохраните PNG без фона для Photoshop.
 
-The renderer is written in TypeScript and GLSL using WebGL 2.
+Рендер написан на TypeScript и GLSL поверх WebGL 2.
 
-## Local development
+## Запуск
 
-Use Node.js 22.12 or newer and a browser with WebGL 2 support.
+Нужны Node.js 22.12+ и браузер с WebGL 2.
 
 ```sh
 npm ci
 npm run dev
 ```
 
-Open [localhost:5173/StandardEngine/](http://localhost:5173/StandardEngine/).
-Vite prints the address in the terminal if it uses a different port.
+Откройте [localhost:5173/StandardEngine/](http://localhost:5173/StandardEngine/).
 
 ```sh
-npm run build    # Build to dist/
-npm run preview  # Serve the production build locally
-npm test         # Run cloth, geometry and rendering math tests
+npm run build    # сборка в dist/
+npm run preview  # просмотр собранной версии
+npm test         # тесты драпировки, ткани, бахромы и экспорта
 ```
 
-## Using the viewer
+## Работа
 
-Click **Upload Image (Auto-Size)** to load a PNG, JPEG, WebP or SVG. The viewer
-keeps the image's aspect ratio and sizes the flag to fit the pole.
+- **Изображение.** Кнопка «Загрузить флаг», перетаскивание файла в окно или вставка
+  из буфера (Ctrl/⌘+V, например слой, скопированный в Photoshop). PNG, JPEG, WebP, SVG.
+  Пропорции полотна берутся из картинки; SVG растеризуется в 4096 px.
+- **Купол.** «Раскрытие» задаёт ширину конуса, «Складок на виток» и «Глубина» — рисунок
+  складок, «Новые складки» перебирает случайные варианты. «Провисание» позволяет ткани
+  сильнее оседать под своим весом и весом бахромы.
+- **Бахрома.** Тонкие витые нити 0,9 мм на узком галуне. Можно менять длину (1,5–10 см)
+  и густоту (30–150 нитей на 10 см кромки), цвет (золото или серебро), включать шнур с кистями.
+- **Зеркало.** «Отзеркалить флаг» разворачивает купол в другую сторону: как у настоящего флага,
+  обёрнутого наоборот, снаружи оказывается изнанка с зеркальным рисунком. «Отразить рисунок»
+  переворачивает саму картинку на ткани; вместе с зеркалом надписи снова читаются, но то, что было
+  у древка, уходит к свободному краю.
+- **Стиль «Аниме».** Цел-шейдинг (два плоских тона, резкий блик, контровой ободок) и чёрный
+  контур с настраиваемой толщиной. Контур рисуется по разрывам глубины только у ткани и фурнитуры,
+  бахрома остаётся чистой. В PNG толщина линий масштабируется вместе с разрешением.
+- **Свет.** Пресеты (студия, зал, тёплый кабинет, окно, вспышка, драматичный) и ручная
+  настройка: направление относительно камеры, высота, яркость, цветовая температура,
+  мягкость теней, контровой свет, экспозиция.
+- **Экспорт PNG без фона.** Кадр обрезается по флагу (вместе с тенью, если она включена),
+  длинная сторона 2048–8192 px. Тень можно не сохранять, сохранить на прозрачном полу вместе
+  с флагом или отдельным файлом `*_shadow.png` того же размера — в Photoshop он ложится
+  отдельным слоем точно под флаг. «Копировать в буфер» кладёт PNG сразу в буфер обмена.
 
-| Panel | Settings |
-| --- | --- |
-| Flag Settings | Image, satin or anime shading, fabric sheen |
-| Shape | Cone or flat preset, cone amount, size and rotation |
-| Physics | Bending stiffness, shape retention and damping |
-| Advanced Drape | Opening, shoulder, fold count and depth, twist |
-| Bend Profile | Local bends near the pole, in the middle and at the free edge |
-| Fringe Settings | Visibility, length and density |
-| Flagpole | Pole length |
-| Motion | Animation, wind response, speed and direction |
-| View | Orthographic or perspective projection |
+Камера: перетаскивание — вращение, Shift или правая кнопка — сдвиг, колесо или щипок — масштаб.
+Настройки запоминаются в браузере.
 
-**Cone** and **Flat** use the same upper attachment. **Cone Amount** blends
-between them: 0 is flat, 1 is conical. Intermediate values show **Custom**.
-Changing the preset keeps the image, flag size and pole settings.
+## Как устроено
 
-Higher **Bending** values make the cloth stiffer. **Shape Hold** controls how
-closely it follows the selected drape. **Damping** reduces motion as the cloth
-settles. The controls in **Advanced Drape** and **Bend Profile** shape the drape
-that the cloth settles toward.
-Fold and bend controls take effect as **Cone Amount** increases; at 0 the rest
-shape is a flat plane. Turning off **Animate** pauses both gravity and wind.
+- **Поза купола** ([src/sim/DrapePose.ts](src/sim/DrapePose.ts)) — обобщённый конус с вершиной
+  в верхнем углу у древка. Каждый луч ткани из этого угла сохраняет длину, поэтому рисунок
+  не растягивается. Лучи обходят древко по кривой на сфере; угол конуса растёт с каждым витком,
+  поэтому слои лежат друг на друге, а не пересекаются. Наружу смотрит лицевая сторона.
+- **Ткань** ([src/sim/ClothSim.ts](src/sim/ClothSim.ts)) — XPBD с мелкими подшагами:
+  нерастяжимая основа, податливый сдвиг, изгиб с физической жёсткостью, привязи к верхнему углу,
+  столкновения слоёв друг с другом и с древком. Вес бахромы утяжеляет кромки.
+- **Поверхность** ([src/scene/FlagCloth.ts](src/scene/FlagCloth.ts)) — плотная сетка
+  Catmull–Rom поверх симуляции, затенение складок отдельно для каждой стороны ткани.
+  Для экспорта плотность удваивается.
+- **Рендер** ([src/render/](src/render/)) — мягкие тени PCSS от ключевого света, атлас
+  с анизотропным бликом, просветом и отражением софтбоксов, золото и лак с отражениями,
+  тонмаппинг Khronos PBR Neutral (цвета флага не уплывают). Экспорт рендерится тайлами
+  с 8× MSAA, альфа приводится к обычной (не premultiplied).
+- **Фурнитура** ([src/scene/Hardware.ts](src/scene/Hardware.ts)) — древко 2,4 м, копьё,
+  кольцо на вершине, круглая подставка, шнур с кистями.
 
-In **Bend Profile**, change the sign of an angle to reverse the fold. If a shape
-would pass through the pole, the viewer reduces the bend strength.
-**Applied Bend %** shows how much of the requested strength is used; 100 means
-the bends are unrestricted.
-
-**Reset Shape** restores the default drape and keeps the current image, material
-and fringe settings. **Reset View** returns the camera to its initial position.
-
-### Camera controls
-
-| Action | Input |
-| --- | --- |
-| Orbit | Drag |
-| Pan | Shift-drag or right-drag |
-| Zoom | Scroll or pinch |
-
-## Drape model
-
-A coarse cloth mesh runs a custom XPBD solver under gravity and wind. Distance,
-shear and bending constraints limit stretching and control flexibility. Shape
-constraints pull the cloth toward the selected flat or conical drape. The
-renderer uses a denser surface for the cloth and fringe.
-
-Folds can hide parts of the image or make them appear narrower from some angles.
-The solver handles contact with the pole. Collisions between folds are not
-calculated, so extreme settings can make the cloth intersect itself.
-
-## Source
-
-- [src/engine/](src/engine/) — WebGL renderer, camera, geometry and vector math.
-- [src/drape/](src/drape/) — fold curves and flag surface generation.
-- [src/physics/](src/physics/) — cloth constraints, gravity, wind and pole contact.
-- [src/rendering/](src/rendering/) — materials, stand and fringe.
-- [src/ui/](src/ui/) — viewer controls and image loading.
-- [tests/](tests/) — cloth constraints, material lengths, pole clearance, fringe, projection and resource disposal tests.
+Складки, которые сильнее, чем позволяет древко, автоматически ослабляются. Самопересечения
+тонких слоёв у самой вершины конуса скрыты кольцом.

@@ -1,7 +1,7 @@
 {
   "name": "standardengine",
   "private": true,
-  "version": "1.1.0.b1",
+  "version": "2.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
